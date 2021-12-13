@@ -1,0 +1,170 @@
+---
+title: "CoE_Europe_analysis"
+author: "M. Weynants"
+date: "12/7/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(raster)
+library(sf)
+library(dplyr)
+library(ggplot2)
+wd <- getwd()
+```
+
+## Load CoE output data
+Assuming all issues have been processed, so that they :
+- have the same equal area geographical coordinate system
+- have the same extent
+- are all dummy variables with values of 0 and 1
+- have the same definition for nodata
+
+```{r CoE_load}
+coe_files <- list.files( 
+  path = "../CoE_Europe_OUTPUT/amended",
+  pattern = "*.tif",
+  full.names = TRUE)
+
+tryCatch(
+  coe_stack <- raster::stack(coe_files)
+)
+if (!exists("coe_stack")) { 
+  print("data harmonization needed")
+  ### sort out extent etc.
+  }
+
+print(coe_stack)
+
+# set band names.
+# problems I see in the data:
+# extent; crs; no data
+# treeloss: nan values! => CoE = no data; crs epsg:3857
+
+# check that crs is equal area
+
+# get resolution
+reso = res(coe_stack)
+# multiplication factor to get area in sqkm from cell count
+mf <- reso[1] * reso[2] * 1e-6
+```
+## Load zones
+The outputs of the convergence of evidence are summarised at administrative (or other) level.
+```{r zone_load}
+if (!dir.exists("../zones_europe")) {dir.create("../zones_europe")}
+if (is.null(list.files(path = "../zones_europe"))) {
+download.file("https://gisco-services.ec.europa.eu/distribution/v2/nuts/download/ref-nuts-2021-01m.geojson.zip", "../zones_europe/ref-nuts-2021-01m.geojson.zip")
+}
+# load NUTS level 3 polygons in ETRS89
+zones <- read_sf(("/vsizip/../zones_europe/ref-nuts-2021-01m.geojson.zip/NUTS_RG_01M_2021_3035_LEVL_3.geojson"))
+zone_test <- zones[100:101,]
+zone_test <- st_transform(zone_test, crs(coe_stack))
+# rasterize zones ? maybe not needed with extract... 
+# But needed to couple zones with masks 
+
+```
+
+## Zonal statistics
+Within each administrative unit, we summarize the information:
+- area affected by each issue
+- area affected by a co-occurrence of issues (! need to identify which band is the sum of issues)
+
+```{r zstat}
+# general summary stat by zone: sum of area for each issue + for number of issues
+# loop on bands
+# loop on values in band (either 0;1 or sum of issues)
+# loop on zones 
+# zonal or extract
+
+# extract raster cell values for each zone
+zone_ext <- extract(
+  # raster object
+  coe_stack,
+  # zones as multipolygon
+  zone_test, 
+  # extrcation method: values
+  method = 'simple')
+# returns a list of lists with length = number of zones, with lists of raster cell values for each zone
+names(zone_ext) <- zone_test$id
+
+# function to tabulate issue by zone, returning a data.frame
+tabFunc <- function (indx, extr, zone, zname) {
+  # contingency tables
+  ltb <- list()
+  for (indb in seq(length(extr))) {
+    dat <- as.data.frame(table(extr[[indx]][,indb]))
+    dat$name <- zone[[zname]][[indx]]
+    dat$varname <- dimnames(extr[[indx]])[[2]][indb]
+    ltb[[indb]] <- dat
+  }
+  # list to data frame
+  return(do.call("rbind", ltb))
+}
+
+# run on each zone. count raster cells for each unique value in coe_stack bands
+tabs <- lapply(seq(zone_ext), tabFunc, zone_ext, zone_test, "NUTS_ID")
+# returns a list of data frames. convert to data frame
+tabs <- do.call("rbind", tabs)
+# export result
+if (!dir.exists("../temp/")){dir.create.dir("../temp/")}
+write.csv(tabs, file = ("../temp/tabs_total.csv"))
+```
+We visualize the tabular data as bar charts. Data are available at all NUTS levels.
+
+```{r barplottotal}
+# sum of issues
+soi <- tabs %>% 
+  # select sum of issues
+  dplyr::filter(varname == "coe_totale.1") %>%
+  # order factor
+  mutate(sum_of_issues = factor(as.numeric(levels(Var1))[Var1], levels = c("-9999", as.character(seq(1,12))), ordered = TRUE)) %>%
+  # compute area as Freq x pixel area
+  mutate(area = Freq * mf)
+Area <- soi$area %>% sum()
+p <- ggplot(soi, 
+    aes(y=area/Area*100, x=Var1)) + #, fill = name, colour=Var1)) +
+    geom_col( size=1, width = 0.7) #+
+    labs(
+      y = bquote(atop('%'~of~.(lu),(.(format(Area*1e-6,digits=3))~km^{2}))), #sprintf("%% of %s (%.3f M sq.km)",lu,Area*1e-12),
+      x = "Number of variables") +
+    scale_y_continuous(limits=c(0,max(40,max(sum_areas[,which(names(sum_areas) %in% field)])/Area*100))) +
+    scale_colour_manual(values=plt) + 
+    scale_fill_grey(start = 0.7, end = 0.4) +
+    guides(colour = "none", fill = guide_legend('')) +
+    coord_flip() +
+    theme(
+      axis.title.x = element_text(hjust=1),
+      panel.border = element_rect(fill=NA, colour = "gray40"),
+      plot.background = element_rect(fill = "transparent"),
+      panel.background = element_rect(fill = "transparent"),
+      panel.grid.major.x = element_line(colour = "black"),
+      # panel.grid.minor.x = element_line(element_blank()),
+      # axis.line.x = element_line(colour = "black"),
+      # axis.line.y = element_line(colour = "black"),
+      axis.ticks = element_blank(),
+      aspect.ratio = 1/.8
+    )
+ggsave(filename = paste0(gsub("/","_",cont_adjective),'_',luShort,"_sumCE_dry.png"),
+      p+theme(text = element_text(size = 24)), 
+      path = paste0("../graphs/",continent, "/", zone),
+      width=15,
+      height=10,
+      units="cm")
+```
+
+We can also look at the data, under different perspectives.
+
+### Highlight on arid and semi-arid areas
+
+### Dominant land use/cover classes (end of period)
+
+### Land productivity dynamics
+
+### Conventional ag
+
+### Organic ag
+
+### Regenerative ag
+
+trends.earth outputs
