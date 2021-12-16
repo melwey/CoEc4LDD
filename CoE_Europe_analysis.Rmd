@@ -23,8 +23,19 @@ Assuming all issues have been processed, so that they :
 
 ```{r CoE_load}
 coe_files <- list.files( 
-  path = "../CoE_Europe_OUTPUT/amended",
+  path = "../CoE_Europe_OUTPUT/3035",
   pattern = "*.tif",
+  full.names = TRUE)
+
+coe_list <- lapply(coe_files, function(x){raster(x)})
+# LPD has different resolution
+
+coe_sum <- raster(coe_files[grepl("coe", coe_files)][1])
+coe_stack <- brick(coe_files[grepl("coe", coe_files)][2])
+
+coe_files <- list.files( 
+  path = "../CoE_Europe_OUTPUT/3035",
+  pattern = "*.vrt",
   full.names = TRUE)
 
 tryCatch(
@@ -38,11 +49,28 @@ if (!exists("coe_stack")) {
 print(coe_stack)
 
 # set band names.
-# problems I see in the data:
-# extent; crs; no data
-# treeloss: nan values! => CoE = no data; crs epsg:3857
-
+# get band order from vrt
+band_order <-  c(
+  "coe" = "Sum of issues",
+  "LPD" = "Land Productivity Dynamics Change",
+  "Virtual" = "",
+  "builtup" = "Built-up",
+  "bws" = "Water stress",
+  "eutro" = "Eutrophication",
+  "fires" = "Fires",
+  "gwdecline" = "Groundwater decline",
+  "hhi" = "Household income",
+  "irrig" = "Irrigation under water stress",
+  "nitrogen" = "Nitrogen",
+  "pop" = "Population",
+  "soilacid" = "Soil acidification",
+  "soilero" = "Water erosion",
+  "treeloss" = "Tree loss",
+  "windero" = "Wind erosion"
+)
+names(coe_stack) <- names(band_order)[-3]
 # check that crs is equal area
+
 
 # get resolution
 reso = res(coe_stack)
@@ -52,14 +80,16 @@ mf <- reso[1] * reso[2] * 1e-6
 ## Load zones
 The outputs of the convergence of evidence are summarised at administrative (or other) level.
 ```{r zone_load}
-if (!dir.exists("../zones_europe")) {dir.create("../zones_europe")}
-if (is.null(list.files(path = "../zones_europe"))) {
-download.file("https://gisco-services.ec.europa.eu/distribution/v2/nuts/download/ref-nuts-2021-01m.geojson.zip", "../zones_europe/ref-nuts-2021-01m.geojson.zip")
-}
-# load NUTS level 3 polygons in ETRS89
-zones <- read_sf(("/vsizip/../zones_europe/ref-nuts-2021-01m.geojson.zip/NUTS_RG_01M_2021_3035_LEVL_3.geojson"))
+
+# load NUTS level 3 polygons in ETRS89 from EUROSTAT gisco API
+url_zones <- "https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson/NUTS_RG_01M_2021_3035_LEVL_3.geojson"
+zones <- geojsonsf::geojson_sf(url_zones)
+# cite as © EuroGeographics for the administrative boundaries
+st_crs(zones) <- CRS(projargs = "+init=epsg:3035")
+
 zone_test <- zones[100:101,]
-zone_test <- st_transform(zone_test, crs(coe_stack))
+# zone_test <- st_transform(zone_test, crs(coe_stack))
+
 # rasterize zones ? maybe not needed with extract... 
 # But needed to couple zones with masks 
 
@@ -92,7 +122,7 @@ names(zone_ext) <- zone_test$id
 tabFunc <- function (indx, extr, zone, zname) {
   # contingency tables
   ltb <- list()
-  for (indb in seq(length(extr))) {
+  for (indb in seq(dim(extr[[1]])[2])) {
     dat <- as.data.frame(table(extr[[indx]][,indb]))
     dat$name <- zone[[zname]][[indx]]
     dat$varname <- dimnames(extr[[indx]])[[2]][indb]
@@ -116,18 +146,19 @@ We visualize the tabular data as bar charts. Data are available at all NUTS leve
 # sum of issues
 soi <- tabs %>% 
   # select sum of issues
-  dplyr::filter(varname == "coe_totale.1") %>%
+  dplyr::filter(varname == "coe") %>%
   # order factor
-  mutate(sum_of_issues = factor(as.numeric(levels(Var1))[Var1], levels = c("-9999", as.character(seq(1,12))), ordered = TRUE)) %>%
+  mutate(sum_of_issues = Var1) %>%
   # compute area as Freq x pixel area
   mutate(area = Freq * mf)
 Area <- soi$area %>% sum()
 p <- ggplot(soi, 
     aes(y=area/Area*100, x=Var1)) + #, fill = name, colour=Var1)) +
-    geom_col( size=1, width = 0.7) #+
+    geom_col( size=1, width = 0.7) +
+    #####
     labs(
-      y = bquote(atop('%'~of~.(lu),(.(format(Area*1e-6,digits=3))~km^{2}))), #sprintf("%% of %s (%.3f M sq.km)",lu,Area*1e-12),
-      x = "Number of variables") +
+      #y = bquote(atop('%'~of~.(lu),(.(format(Area*1e-6,digits=3))~km^{2}))), #sprintf("%% of %s (%.3f M sq.km)",lu,Area*1e-12),
+      x = "Number of issues") +
     scale_y_continuous(limits=c(0,max(40,max(sum_areas[,which(names(sum_areas) %in% field)])/Area*100))) +
     scale_colour_manual(values=plt) + 
     scale_fill_grey(start = 0.7, end = 0.4) +
