@@ -1,17 +1,72 @@
 ---
 title: "Convergence of Evidence: land degrdation in Europe"
 author: "M. Weynants"
-date: "13/12/2021"
+date: "18/01/2021"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(raster)
+library(terra)
 library(sf)
 library(dplyr)
+library(tidyr)
 library(ggplot2)
 wd <- getwd()
+if (!dir.exists("./temp")){dir.create("./temp")}
+```
+## Define study area and zones
+The outputs of the convergence of evidence are summarised at administrative (or other) level.
+```{r zone_load}
+# get official NUTS areas
+if (!"eurostat" %in% installed.packages()[,1]){
+  install.packages("eurostat")
+}
+library(eurostat)
+reg_area3 <- get_eurostat("reg_area3") %>%
+  filter(time == as.Date("2016-01-01")) %>%
+  dplyr::select(geo, landuse, values) %>%
+  # landuse: TSA (total surface area) = TOTAL
+  #          TLA (total land area) = L0008
+  pivot_wider(id_cols = geo, names_from = landuse, values_from = values) %>%
+  rename(TSA = TOTAL, TLA = L0008)
+
+if (!file.exists("./temp/zones_eu27.geojson")) {
+# load NUTS level 3 polygons in ETRS89 from EUROSTAT gisco API
+# Map Scale = Raster resolution (in meters) * 2 * 1000
+# 2e6 doesn't exist so take 1:1000000
+url_zones <- "https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson/NUTS_RG_01M_2021_3035_LEVL_3.geojson"
+zones <- geojsonsf::geojson_sf(url_zones)
+# cite as © EuroGeographics for the administrative boundaries
+# crs not properly assigned
+st_crs(zones) <- st_crs(3035)
+
+# restrict to EU27
+clip <- read_sf("../EU_dissolve/EU_dissolve.shp") %>%
+  st_transform(crs = 3035)
+zones_eu27 <- zones %>% 
+  # EU27
+  dplyr::filter(CNTR_CODE %in% c("BE", "BG", "CZ", "DK", "DE", "EE", "IE",
+                                 "EL", "ES", "FR", "HR", "IT", "CY", "LV",
+                                 "LT", "LU", "HU", "MT", "NL", "AT", "PL",
+                                 "PT", "RO", "SI", "SK", "FI", "SE")) %>%
+  # remove oversea territories !!! Cyprus is missing!!!
+  sf::st_intersection(clip)%>%
+  # add back missing CY
+  add_row(zones %>% filter(CNTR_CODE == "CY")) %>%
+  # add ID
+  mutate(ID = row_number()) %>%
+  # add area from eurostat
+  dplyr::left_join(reg_area3, by = c("NUTS_ID" = "geo")) 
+# export clip
+st_write(zones_eu27, dsn = "./temp/zones_eu27.geojson")
+# reload file as SpatVect
+zones_eu27 <- vect(zones_eu27)
+rm(zones, clip)
+} else {
+  zones_eu27 <- vect(geojsonsf::geojson_sf("./temp/zones_eu27.geojson"))
+}
+
 ```
 
 ## Load CoE output data
@@ -23,165 +78,351 @@ Assuming all issues have been processed, so that they :
 
 ```{r CoE_load}
 coe_files <- list.files( 
-  path = "../CoE_Europe_OUTPUT/3035",
-  pattern = "*.tif",
+  path = "../CoE_Europe_OUTPUT/3035_1221",
+  pattern = "*.tif$",
   full.names = TRUE)
 
-coe_list <- lapply(coe_files, function(x){raster(x)})
-# LPD has different resolution
-
-coe_sum <- raster(coe_files[grepl("coe", coe_files)][1])
-coe_stack <- brick(coe_files[grepl("coe", coe_files)][2])
-
-coe_files <- list.files( 
-  path = "../CoE_Europe_OUTPUT/3035",
-  pattern = "*.vrt",
-  full.names = TRUE)
-
-tryCatch(
-  coe_stack <- raster::stack(coe_files)
-)
-if (!exists("coe_stack")) { 
-  print("data harmonization needed")
-  ### sort out extent etc.
-  }
-
-print(coe_stack)
-
-# set band names.
 # get band order from vrt
 band_order <-  c(
-  "coe" = "Sum of issues",
-  "LPD" = "Land Productivity Dynamics Change",
-  "Virtual" = "",
+  "coe_europe_december6" = "Sum of issues",
+  "lpd_coe1000" = "Land Productivity Dynamics Change",
+  "TreeLoss_1000_3035_5" = "Tree loss",
+  "acidification" = "Soil acidification",
   "builtup" = "Built-up",
   "bws" = "Water stress",
-  "eutro" = "Eutrophication",
+  "eutrof" = "Eutrophication",
   "fires" = "Fires",
-  "gwdecline" = "Groundwater decline",
+  "groundwaterdecline" = "Groundwater decline",
   "hhi" = "Household income",
-  "irrig" = "Irrigation under water stress",
+  "irrigation" = "Irrigation under water stress",
   "nitrogen" = "Nitrogen",
   "pop" = "Population",
-  "soilacid" = "Soil acidification",
-  "soilero" = "Water erosion",
-  "treeloss" = "Tree loss",
-  "windero" = "Wind erosion"
+  "rusle" = "Water erosion",
+  "wind" = "Wind erosion"
 )
-names(coe_stack) <- names(band_order)[-3]
-# check that crs is equal area
+# coe_files <- list.files( 
+#   path = "../CoE_Europe_OUTPUT/3035",
+#   pattern = "*.vrt",
+#   full.names = TRUE)
 
+# coe_list <- lapply(coe_files, function(x){raster(x)})
+# # LPD had different resolution.. Fede remade it
+
+# Still, rasters are not aligned!!!!
+
+# coe_sum <- rast(coe_files[grepl(names(band_order)[1], coe_files)])
+
+if(exists("coe_stack")) {rm(coe_stack)}
+
+tryCatch(
+  coe_stack <- rast(paste0("../CoE_Europe_OUTPUT/3035_1221/",names(band_order), ".tif"))
+)
+if (!exists("coe_stack")) {
+  print("data harmonization needed")
+  ### sort out extent etc.
+  # bypass by creating vrt
+  file.create("./temp/buildvrtInputFiles.txt")
+  write(paste0("../CoE_Europe_OUTPUT/3035_1221/",names(band_order), ".tif"),"./temp/buildvrtInputFiles.txt")
+  # set target extent to something reasonable, e.g. that of zones_eu27
+  expres <- paste("gdalbuildvrt -resolution user -te", paste(as.vector(round(ext(zones_eu27)[c(1,3,2,4)])), collapse = " "), "-tr 1000 1000 -separate -r nearest -input_file_list ../CoE_Europe_OUTPUT/3035_1221/buildvrtInputFiles.txt ../CoE_Europe_OUTPUT/3035_1221/coe_stack.vrt")
+  system(expres)
+  coe_stack <- writeRaster(rast("../CoE_Europe_OUTPUT/3035_1221/coe_stack.vrt"),
+                           datatype = "INT1U",
+                           filename = "./temp/coe_stack.tif")
+  }
+
+# different extents! Not aligned!
+# shift in vrt introduced by fires.
+
+# print(coe_stack)
+
+# set band names.
+names(coe_stack) <- names(band_order)
 
 # get resolution
 reso = res(coe_stack)
 # multiplication factor to get area in sqkm from cell count
 mf <- reso[1] * reso[2] * 1e-6
-```
-## Load zones
-The outputs of the convergence of evidence are summarised at administrative (or other) level.
-```{r zone_load}
 
-# load NUTS level 3 polygons in ETRS89 from EUROSTAT gisco API
-url_zones <- "https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson/NUTS_RG_01M_2021_3035_LEVL_3.geojson"
-zones <- geojsonsf::geojson_sf(url_zones)
-# cite as © EuroGeographics for the administrative boundaries
-st_crs(zones) <- CRS(projargs = "+init=epsg:3035")
-
-zone_test <- zones[100:101,]
-# zone_test <- st_transform(zone_test, crs(coe_stack))
-
-# rasterize zones ? maybe not needed with extract... 
-# But needed to couple zones with masks 
+# rasterize study area : needed to couple zones with masks 
+system.time(
+rzones_eu27 <- zones_eu27 %>% 
+  rasterize(coe_stack, field = "ID", filename = "./temp/rzones_eu27.tif")
+)
+# user  system elapsed 
+# 0.875   0.135   1.692 
 
 ```
 
 ## Zonal statistics
 Within each administrative unit, we summarize the information:
-- area affected by each issue
 - area affected by a co-occurrence of issues (! need to identify which band is the sum of issues)
+- area affected by each issue
+
+We look at this in different land cover classes and in function of land productivity dynamics.
 
 ```{r zstat}
-# general summary stat by zone: sum of area for each issue + for number of issues
-# loop on bands
-# loop on values in band (either 0;1 or sum of issues)
-# loop on zones 
-# zonal or extract
+# we add LC, lpd and aridity to zones
+# Land cover reclassied as 6 classes as used for stratification
+LC <- rast("../CoE_Europe_OUTPUT/LC/LandCover_3035.tif") %>%
+  # resample to match zones
+  project(rzones_eu27, method = "near", filename = "./temp/LC.tif")
 
-# extract raster cell values for each zone
-zone_ext <- extract(
-  # raster object
-  coe_stack,
-  # zones as multipolygon
-  zone_test, 
-  # extrcation method: values
-  method = 'simple')
-# returns a list of lists with length = number of zones, with lists of raster cell values for each zone
-names(zone_ext) <- zone_test$id
+# change in LPD between reference period (2000-2015) and reporting (2004-2019)
+LPD <- rast("../CoE_Europe_OUTPUT/LPD_sumNDVI/lpd_change_option_4.tif") %>%
+  # reproject
+  project(rzones_eu27, method = "near", filename = "./temp/LPD.tif")
+# takes much more time than LC... possibly difference in encoding?
 
-# function to tabulate issue by zone, returning a data.frame
-tabFunc <- function (indx, extr, zone, zname) {
-  # contingency tables
-  ltb <- list()
-  for (indb in seq(dim(extr[[1]])[2])) {
-    dat <- as.data.frame(table(extr[[indx]][,indb]))
-    dat$name <- zone[[zname]][[indx]]
-    dat$varname <- dimnames(extr[[indx]])[[2]][indb]
-    ltb[[indb]] <- dat
-  }
-  # list to data frame
-  return(do.call("rbind", ltb))
-}
+# aridity: problem: doesn't cover all land; would introduce no data
+# so i drop it from the analysis
 
-# run on each zone. count raster cells for each unique value in coe_stack bands
-tabs <- lapply(seq(zone_ext), tabFunc, zone_ext, zone_test, "NUTS_ID")
-# returns a list of data frames. convert to data frame
-tabs <- do.call("rbind", tabs)
-# export result
-if (!dir.exists("../temp/")){dir.create.dir("../temp/")}
-write.csv(tabs, file = ("../temp/tabs_total.csv"))
+# sum raster
+comb <- function(x, y, z){x + y * 1e4 + z * 1e5}
+combined_zones <- lapp(sds(rzones_eu27, LC, LPD), 
+             fun = comb,
+             filename = "./temp/combined_zones.tif")
+soi_zones <- lapp(sds(combined_zones, coe_stack[[1]]),
+                 fun = function(x,y) {x + y *1e6},
+                 filename = "./temp/soi_zones.tif")
+
+# Issues
+# zonal sum: sum of cells is equivalent to area in sq.km because we are in an equal area projection with 1000 m resolution AND data are 1 or 0
+system.time(
+stat_issues <- terra::zonal(coe_stack[[-1]], combined_zones, fun = "sum", na.rm = TRUE)
+)
+# i would like to have a way to know how much data
+system.time(
+stat_issues_data <- terra::zonal(coe_stack[[-1]], combined_zones, fun = function(x, ...){sum(!is.na(x))})
+)
+#   user  system elapsed 
+# 99.005  11.661 115.369 
+stat_issues_data %>% summarise(across(lpd_coe1000:wind, sum))
+# only lpd has 6 pixels less. All the others have 4102196 data values.
+
+# Sum of issues
+system.time(
+stat_soi <- terra::freq(soi_zones) %>% as.data.frame()
+)
+sum(stat_soi$count)
+# 4102190, coming from the LPD.
+# so we can safely use the areas from soi to analyse the individual issues.
+
+# Prepare data for further analysis
+issues_areas <- stat_issues %>%
+  mutate(LPD = floor(ID * 1e-5)) %>%
+  mutate(LC = floor((ID - LPD*1e5)*1e-4)) %>%
+  mutate(ID = ID - LPD*1e5 - LC*1e4) %>%
+  left_join(as.data.frame(zones_eu27) %>% dplyr::select(ID, NUTS_ID, CNTR_CODE, URBN_TYPE, MOUNT_TYPE, COAST_TYPE))
+# I'm missing the total cell count with data at this stage...
+
+soi_areas <- stat_soi %>%
+  mutate(soi = floor(value * 1e-6)) %>%
+  mutate(LPD = floor((value - soi*1e6) * 1e-5)) %>%
+  mutate(LC = floor((value - soi*1e6 - LPD*1e5 )*1e-4)) %>%
+  mutate(ID = value - soi*1e6 - LPD*1e5 - LC*1e4) %>%
+  left_join(as.data.frame(zones_eu27) %>% dplyr::select(ID, NUTS_ID, CNTR_CODE, URBN_TYPE, MOUNT_TYPE, COAST_TYPE))
+
 ```
 We visualize the tabular data as bar charts. Data are available at all NUTS levels.
 
 ```{r barplottotal}
 # sum of issues
-soi <- tabs %>% 
-  # select sum of issues
-  dplyr::filter(varname == "coe") %>%
-  # order factor
-  mutate(sum_of_issues = Var1) %>%
-  # compute area as Freq x pixel area
-  mutate(area = Freq * mf)
-Area <- soi$area %>% sum()
-p <- ggplot(soi, 
-    aes(y=area/Area*100, x=Var1)) + #, fill = name, colour=Var1)) +
-    geom_col( size=1, width = 0.7) +
-    #####
-    labs(
-      #y = bquote(atop('%'~of~.(lu),(.(format(Area*1e-6,digits=3))~km^{2}))), #sprintf("%% of %s (%.3f M sq.km)",lu,Area*1e-12),
-      x = "Number of issues") +
-    scale_y_continuous(limits=c(0,max(40,max(sum_areas[,which(names(sum_areas) %in% field)])/Area*100))) +
-    scale_colour_manual(values=plt) + 
-    scale_fill_grey(start = 0.7, end = 0.4) +
-    guides(colour = "none", fill = guide_legend('')) +
-    coord_flip() +
-    theme(
-      axis.title.x = element_text(hjust=1),
-      panel.border = element_rect(fill=NA, colour = "gray40"),
-      plot.background = element_rect(fill = "transparent"),
-      panel.background = element_rect(fill = "transparent"),
-      panel.grid.major.x = element_line(colour = "black"),
-      # panel.grid.minor.x = element_line(element_blank()),
-      # axis.line.x = element_line(colour = "black"),
-      # axis.line.y = element_line(colour = "black"),
-      axis.ticks = element_blank(),
-      aspect.ratio = 1/.8
-    )
-ggsave(filename = paste0(gsub("/","_",cont_adjective),'_',luShort,"_sumCE_dry.png"),
-      p+theme(text = element_text(size = 24)), 
-      path = paste0("../graphs/",continent, "/", zone),
-      width=15,
-      height=10,
-      units="cm")
+soi_eu <- soi_areas %>%
+  group_by(soi) %>%
+  summarise(area = sum(count))
+
+p <- ggplot(soi_eu, aes(x = soi, y = area)) + geom_col()
+p
+# more than half of the (continental) EU has at least 3 coinciding issues.
+```
+More than half of the (continental) EU has at least 3 coinciding issues.
+
+```{r soicntr}
+soi_cntr <- soi_areas %>%
+  group_by(soi, CNTR_CODE) %>%
+  summarise(area = sum(count)) %>%
+  pivot_wider(names_from = soi, values_from = area, values_fill = 0) %>%
+  # sort countries alphabetically
+  arrange(CNTR_CODE) %>%
+  # add EU27 total
+  bind_rows(soi_eu %>% mutate(CNTR_CODE = "EU27") %>% pivot_wider(names_from = soi, values_from = area, values_fill = 0))
+knitr::kable(soi_cntr, cpation = "Areas of each EU country affected by a given number of coinciding issues.")
+```
+Countries do present a different distribution of the number of coinciding issues. 
+
+```{r soicntrplot}
+tmp <- soi_cntr %>%
+  # compute total mapped area by country
+  rowwise() %>%
+  mutate(cntr_area = sum(c_across(`0`:`12`))) 
+areas_cntr <- tmp %>% 
+  dplyr::select(CNTR_CODE, cntr_area)%>%
+  ungroup()
+soi_cntr_pc <- tmp %>%
+  mutate(across(`0`:`12`, ~round(.x/cntr_area*100))) %>%
+  ungroup() %>%
+  dplyr::select(-cntr_area) %>%
+  # cntr_code to factor to fix order
+  mutate(CNTR_CODE = factor(CNTR_CODE, levels = pull(tmp, CNTR_CODE))) %>%
+  # to long table
+  pivot_longer(cols = `0`:`12`, names_to = "soi", values_to = "area")
+ggplot(soi_cntr_pc,
+       aes(x = as.numeric(soi), y = area)) +
+  geom_col() +
+  facet_wrap(~CNTR_CODE, ncol = 7)
+```
+```{r soicntrmean}
+soi_cntr_m <- soi_cntr_pc %>%
+  mutate(soixarea = as.numeric(soi) * area) %>%
+  group_by(CNTR_CODE) %>%
+  arrange(as.numeric(soi), by_group = TRUE) %>%
+  # mutating expressions are computed within groups
+  mutate(cumarea = cumsum(area)) %>%
+  summarise(mean = sum(soixarea)/100, 
+            mode = soi[area == max(area)][1], 
+            q1 = soi[cumarea == min(cumarea[cumarea>=25])],
+            median = soi[cumarea == min(cumarea[cumarea>=50])],
+            q3 = soi[cumarea == min(cumarea[cumarea>=75])]) %>%
+  ungroup() %>% 
+  mutate(across(mode:q3, as.numeric))
+```
+
+```{r soicntrmplot}
+lim_mean <- soi_cntr_m %>% arrange(mean) %>% dplyr::select(CNTR_CODE) %>% unlist()
+names(lim_mode) <-NULL
+soicntrmplot <- ggplot(soi_cntr_m %>% mutate(CNTR_CODE = factor(CNTR_CODE, levels = lim_mean)), aes(x = CNTR_CODE)) +
+  geom_pointrange(mapping = aes(y = median, ymin = q1, ymax = q3), colour = "red", show.legend = TRUE) +
+  geom_point(mapping = aes(y = mean),show.legend = TRUE) +
+  geom_point(mapping = aes(y = mode), shape = "x", size = 4, show.legend = TRUE) +
+  ylab("# coinciding issues") + 
+  xlab("Countries") 
+  
+
+soicntrmplot
+```
+
+We can distinguish groups of countries. Four countries have their peak of distribution (mode, x in the figure) at 1 single issue: LV, EE, FI, SE. Most of the mapped area of these countries have a single issue at a time, except for Sweden for which the median is 2. At the other extreme, six countries have more than half of their area subject to five or more coinciding issues: MT, DK, DE, LU, BE, NL. Half of the continental EU27 (without maritime territories) mapped in this analysis has at least three coinciding issues. There are at least two coinciding issues on 25% of the area, while another 25% of the area has at least four coinciding issues.
+
+In the next section, we look at which are the most frequent issues.
+```{r barplotissuestotal}
+# sum of issues
+issues_eu <- issues_areas %>%
+  # to long table
+  pivot_longer(lpd_coe1000:wind, names_to = "issue", values_to = "area") %>%
+  group_by(issue) %>%
+  summarise(area = sum(area)) %>%
+  # sort by area
+  arrange(area)
+
+p <- ggplot(issues_eu, aes(x = factor(issue, levels = pull(issues_eu,issue)), y = area)) + 
+  geom_col() +
+  coord_flip()+ 
+  xlab("") 
+p
+```
+
+```{r }
+issues_cntr <- issues_areas %>%
+  group_by(CNTR_CODE) %>%
+  summarise(across(lpd_coe1000:wind, sum)) %>%
+  # sort countries alphabetically
+  arrange(CNTR_CODE) %>%
+  # add EU27 total
+  bind_rows(issues_eu %>% mutate(CNTR_CODE = "EU27") %>% pivot_wider(names_from = issue, values_from = area, values_fill = 0)) %>%
+  # rearrange columns
+  dplyr::select(c("CNTR_CODE", pull(issues_eu,issue)))
+knitr::kable(issues_cntr, cpation = "Areas of each EU country affected by a given issue.")
+
+```
+
+```{r issuescntrplot}
+issues_cntr_pc <- issues_cntr %>%
+  left_join(areas_cntr) %>%
+  rowwise() %>%
+  mutate(across(where(is.numeric), ~round(.x/cntr_area*100))) %>%
+  ungroup() %>%
+  dplyr::select(-cntr_area) %>%
+  # cntr_code to factor to fix order
+  mutate(CNTR_CODE = factor(CNTR_CODE, levels = pull(issues_cntr, CNTR_CODE))) %>%
+  # to long table
+  pivot_longer(fires:eutrof, names_to = "issue", values_to = "area") %>%
+  # set issue as factor, with levels sorted by increasing area affected at EU scale
+  mutate(issue = factor(issue, levels = pull(issues_eu,issue)))
+  
+
+ggplot(issues_cntr_pc,
+       aes(x = issue, y = area)) +
+  geom_col() +
+  facet_wrap(~CNTR_CODE, ncol = 7) +
+  coord_flip()
+```
+```
+
+```{r}
+###########
+
+# soi <- tabs %>% 
+#   # select sum of issues
+#   dplyr::filter(grepl("coe", varname)) %>%
+#   # order factor
+#   mutate(sum_of_issues = factor(as.numeric(as.character(Var1)), levels = seq.int(0,nlayers(coe_stack)-1))) %>%
+#   # compute area as Freq x pixel area
+#   mutate(area = Freq * mf) %>%
+#   dplyr::select(-Var1, -Freq, -varname)
+# Area <- soi$area %>% sum()
+# p <- ggplot(soi, 
+#     aes(y=area/Area*100, x=sum_of_issues)) + #, fill = name, colour=Var1)) +
+#     geom_col( size=1, width = 0.7) +
+#     #####
+#     labs(
+#       y = "Percentage of area",#bquote(atop('%'~of~.(lu),(.(format(Area*1e-6,digits=3))~km^{2}))), #sprintf("%% of %s (%.3f M sq.km)",lu,Area*1e-12),
+#       x = "Number of coinciding issues") +
+#     scale_x_discrete(limits = levels(soi$sum_of_issues))
+# 
+# # ggsave(filename = "sumCE.png",
+# #       p+theme(text = element_text(size = 24)), 
+# #       path = "./fig",
+# #       width=15,
+# #       height=10,
+# #       units="cm")
+# 
+# # table output
+# # - sum_of_issues
+# # | nuts
+# soit_nuts3 <- soi %>%
+#   # sort by increasing sum_of_issues
+#   arrange(sum_of_issues) %>%
+#   # make table wider with number of coinciding issues as columns
+#   pivot_wider(id_cols = name, names_from = sum_of_issues, names_prefix = "soi", values_from = area) %>%
+#   # compute rowwise total area
+#   rowwise() %>%
+#   mutate(total = sum(c_across(where(is.numeric)), na.rm = TRUE)) %>%
+#   ungroup() %>%
+#   # add official area (from eurostat)
+#   left_join(reg_area3, by = c("name" = "geo"))
+#   # get area percentages
+#   mutate(across(starts_with("soi"), function(x){if_else(is.na(x), 0, round(x/total*100))}, .names = "{.col}_pc") )
+#   #
+# #  nuts0
+# soit_nuts0 <- soi  %>%
+#   # sort by increasing sum_of_issues
+#   arrange(sum_of_issues) %>%
+#   # make table wider with number of coinciding issues as columns
+#   pivot_wider(id_cols = name, names_from = sum_of_issues, names_prefix = "soi", values_from = area)%>%
+#   # change names to nuts0
+#   mutate(name = substr(name, start = 1, stop = 2)) %>%
+#   # group and summarise by name
+#   group_by(name) %>%
+#   summarise(across(starts_with("soi"), ~ sum(.x, na.rm = TRUE))) %>%
+#   # compute row-wise total area
+#   rowwise() %>%
+#   mutate(total = sum(c_across(where(is.numeric)), na.rm = TRUE)) %>%
+#   ungroup() %>%
+#   # get area percentages
+#   mutate(across(starts_with("soi"), function(x){if_else(is.na(x), 0, round(x/total*100))}, .names = "{.col}_pc") )
+#   #
+
 ```
 
 We can also look at the data, under different perspectives.
