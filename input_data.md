@@ -18,7 +18,7 @@
  **Erosion:** source JRC ESDAC Rusle 2015 original 100m, resampled to 1Km and clipped using EU27. Stratified >Median
  
 ### 5- TREE LOSS
- **Tree Loss:** source Hansen Dataset. [surce code](https://code.earthengine.google.com/c0a3bb99851351a2a8b9343aa35d42aa)
+ **Tree Loss:** source Hansen Dataset. [surce code](https://code.earthengine.google.com/21af9632215637b54246464878d6089a). Tha output has been riclassified 0-1 and clipped on the EU27 boundaries
  
 ### 6- WIND EROSION
  **Wind Erosion:** source JRC ESDAC 1resampled to 1Km and clipped using EU27. Stratified >Median
