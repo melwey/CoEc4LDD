@@ -13,3 +13,22 @@ zone     median
 6  0.0000000
 ```
 ### RUSLE
+Ho avuto difficoltà con allineare i due raster.  
+Per farli coincidere:
+
+```
+x<-resample(issue,LC, method='ngb')
+x
+issue <-x
+```
+
+```
+zone      median
+0  0.02423724
+1  1.51521218
+2  0.97233599
+3  0.08207296
+4  1.14269334
+5  0.03034405
+6 20.54667473
+```
