@@ -75,3 +75,18 @@ zone      median
 5 0.359986484
 6 2.484024763
 ```
+
+### Nitrogen Surplus
+strification > median
+
+```
+zone median
+0     32
+1     25
+2     38
+3     31
+4     39
+5     26
+6      8
+```
+
