@@ -33,7 +33,7 @@ zone      median
 6 20.54667473
 ```
 
-### ACIDIFICATION
+### Acidification
 
 ```
 zone    median
@@ -46,7 +46,7 @@ zone    median
 6 0.0000000
 ```
 
-### EUTROFICATION
+### Eutrofication
 
 ```
 zone     median
@@ -57,4 +57,17 @@ zone     median
 4 449.189178
 5  85.140457
 6   3.149375
+```
+
+### Wind erosion
+
+```
+zone      median
+0 0.040224330
+1 0.008240443
+2 0.051256031
+3 0.005175964
+4 0.013581317
+5 0.359986484
+6 2.484024763
 ```
