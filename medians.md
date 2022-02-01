@@ -21,6 +21,7 @@ x<-resample(issue,LC, method='ngb')
 x
 issue <-x
 ```
+strification > median
 
 ```
 zone      median
@@ -34,6 +35,7 @@ zone      median
 ```
 
 ### Acidification
+strification > median
 
 ```
 zone    median
@@ -47,6 +49,7 @@ zone    median
 ```
 
 ### Eutrofication
+strification > median
 
 ```
 zone     median
@@ -60,6 +63,7 @@ zone     median
 ```
 
 ### Wind erosion
+strification > median
 
 ```
 zone      median
