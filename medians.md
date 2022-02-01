@@ -1,7 +1,7 @@
 
 ### Population
 
-strification > median
+stratification > median
 ```
 zone     median
 0  0.0000000
@@ -21,7 +21,7 @@ x<-resample(issue,LC, method='ngb')
 x
 issue <-x
 ```
-strification > median
+stratification > median
 
 ```
 zone      median
@@ -35,7 +35,7 @@ zone      median
 ```
 
 ### Acidification
-strification > median
+stratification > median
 
 ```
 zone    median
@@ -49,7 +49,7 @@ zone    median
 ```
 
 ### Eutrofication
-strification > median
+stratification > median
 
 ```
 zone     median
@@ -63,7 +63,7 @@ zone     median
 ```
 
 ### Wind erosion
-strification > median
+stratification > median
 
 ```
 zone      median
@@ -77,7 +77,7 @@ zone      median
 ```
 
 ### Nitrogen Surplus
-strification > median
+stratification > median
 
 ```
 zone median
@@ -93,8 +93,7 @@ zone median
 ### Soil microbial biomass and respiration
 
 Layer: qO2_annual_mean_gen.tif
-strification > median
-
+stratification > median
 
 ```
   zone      median
