@@ -90,3 +90,19 @@ zone median
 6      8
 ```
 
+### Soil microbial biomass and respiration
+
+Layer: qO2_annual_mean_gen.tif
+strification > median
+
+
+```
+  zone      median
+0 0.007223642
+1 0.003695103
+2 0.002959883
+3 0.005965348
+4 0.003090888
+5 0.010294989
+6 0.007087539
+```
