@@ -90,3 +90,18 @@ zone median
 6      8
 ```
 
+### Population change
+strification > median
+
+```
+zone median
+  zone  median
+0 0.00000
+1 0.00000
+2 0.00000
+3 0.00000
+4 3.09726
+5 0.00000
+6 0.00000
+```
+
