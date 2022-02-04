@@ -4,7 +4,7 @@ library(terra)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-library(ggtern)
+# library(ggtern)
 
 # compare our results with trends.earth:
 # TO DO 
@@ -56,11 +56,11 @@ soi_sdg_nuts <-soi_nuts_m %>%
 # display comparison as ternary plot
 # position on the triangle represents proportions of area of nuts with degr, stab and impr
 # colour scale represents median number of issues.
-t <- ggtern(data = soi_sdg_nuts, aes(Improving, Stable, Degrading)) +
-  geom_point(aes(colour = median), size = .5) +
-  scale_colour_viridis_b(name = "Median # issues", breaks = 0:max(soi_nuts_m$median))
-ggsave("./fig/soi_m_sdg_tern.png")
-citation(package = 'ggtern')
+# t <- ggtern(data = soi_sdg_nuts, aes(Improving, Stable, Degrading)) +
+#   geom_point(aes(colour = median), size = .5) +
+#   scale_colour_viridis_b(name = "Median # issues", breaks = 0:max(soi_nuts_m$median))
+# ggsave("./fig/soi_m_sdg_tern.png")
+# citation(package = 'ggtern')
 
 # points are not well scattered: not enough improving
 # try 2D, but need to scale by nuts
@@ -79,19 +79,19 @@ ggplot(data = soi_sdg_nuts_pc,
   geom_jitter() +
   geom_smooth(method = "lm", formula = y~x, se = FALSE) +
   xlab("Median # issues") + 
-  ylab("Percentage area of NUTS3") + 
+  ylab("Percentage area within NUTS3") + 
   scale_colour_brewer(palette = "Dark2")
-ggsave(filename = "./fig/soi_sdg_nuts_jitter.png")
+ggsave(filename = "./fig/soi_sdg_nuts_jitter.png", height = 6, width = 8)
 # There is a certain agreement between the two methods:
 # NUTS3 with a larger proportion of Degrading tend to have more coinciding issues
-# NUTS3 with a larger proportion of Improving tend to have less issues. 
+# NUTS3 with a larger proportion of Improving tend to have less issues.
 # The trend is however not so strong.
 # A similar trend is seen for the proportion of Stable land.
-# The proportion of Stable land as calculated by Trends.Earth indicator SDG 15.3 
-# is above 50% in most NUTS3. We here show however that most of these NUTS3 
+# The proportion of Stable land as calculated by Trends.Earth indicator SDG 15.3
+# is above 50% in most NUTS3. We here show however that most of these NUTS3
 # are affected by at least three coinciding issues on half of their area (Median number of issues).
 # 
-# We hence urge countries to include other indicators of land status and trends 
+# We hence urge countries to include other indicators of land status and trends
 # in their land degradation assessment.
 
 citation(package = 'ggplot2')

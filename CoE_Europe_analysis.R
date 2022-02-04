@@ -4,12 +4,20 @@ library(sf)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(rasterVis)
 wd <- getwd()
 
+# set path to convergence data (issues)
+path2data <- "../CoE_Europe_OUTPUT/coe_jan2022"
+
+restart <- TRUE
+if (restart) {
+  file.remove("./temp")
+  file.remove("./temp")
+}
 if (!dir.exists("./temp")){dir.create("./temp")}
 if (!dir.exists("./fig")){dir.create("./fig")}
 
-restart <- TRUE
 # # DO NOT RUN
 # # to start from scratch, execute:
 # # empty dir temp
@@ -112,8 +120,6 @@ if (!file.exists("./temp/zones_eu27.geojson")) {
 
 # We compute the sum of issues ignoring the no data values, i.e. no data are considered as 0. The resulting layer has integer values from 0 to (theoretically) 14, where 0 corresponds to true 0 or no data. All other values correspond to at least their number of coinciding issues.
 
-path2data <- "../CoE_Europe_OUTPUT/coe_jan2022"
-
 coe_files <- list.files( 
   path = path2data,
   pattern = "*.tif$",
@@ -123,7 +129,7 @@ coe_files <- list.files(
 band_order <-  c(
   "fires1" = "Fires",
   "treeloss_issue" = "Tree loss",
-  "nitrogen_R" = "Nitrogen balance",
+  "nitrogen_R" = "Nitrogen surplus",
   "eutrofication_issue_R" = "Eutrophication",
   "acidification_issue_R" = "Soil acidification",
   "water_stress_issue" = "Water stress",
@@ -132,8 +138,9 @@ band_order <-  c(
   #"hhi" = "Household income",
   "rusle_issue_R" = "Water erosion",
   "wind_issue_R" = "Wind erosion",
-  "lpd_issue" = "Land Productivity Dynamics Change",
+  "lpd_issue" = "LPD change",
   "population_issue_R" = "Population",
+  "popchange_R" = "Population change",
   "builtup_issue" = "Built-up",
   "soilmicro_R" = "Soil respiratory quotient"
 )
@@ -206,6 +213,18 @@ system.time(
 )
 areas_nuts <- stat_nuts %>%
   left_join(as.data.frame(zones_eu27) %>% dplyr::select(ID, NUTS_ID, CNTR_CODE, URBN_TYPE, MOUNT_TYPE, COAST_TYPE), by = c("value" = "ID"))
+
+# plot soi
+coe_soi_masked <- terra::mask(coe_soi, mask = rzones_eu27, filename = "./temp/coe_soi_masked.tif")
+gplot(coe_soi_masked) + 
+  geom_raster(aes(fill = value)) + 
+  scale_fill_viridis_b(name = "# issues", 
+                       breaks = 0:max(soi_nuts_m$median),
+                       na.value="white")  +
+  coord_equal() +
+  theme_void()
+ggsave(filename = "./fig/soi_map.png", height = 8, width = 8)  
+
 
 ## Zonal statistics
 # Within each administrative unit, we summarize the information:
@@ -350,8 +369,10 @@ soi_cntr_pc <- tmp %>%
 ggplot(soi_cntr_pc,
        aes(x = as.numeric(soi), y = area)) +
   geom_col() +
-  facet_wrap(~CNTR_CODE, ncol = 7)
-ggsave(filename = "./fig/soi_cntr.png")
+  facet_wrap(~CNTR_CODE, ncol = 7) +
+  xlab("# coinciding issues") + 
+  ylab("Percentage of country area")
+ggsave(filename = "./fig/soi_cntr.png", width = 8, height = 6)
 # fig.cap = "Frequency of number of coinciding issues for EU27 countries (excluding oversea territories)."
 
 # mean, median, mode by country
@@ -380,7 +401,7 @@ soicntrmplot <- ggplot(soi_cntr_m %>% mutate(CNTR_CODE = factor(CNTR_CODE, level
   xlab("Countries") 
 soicntrmplot
 
-ggsave(filename = "./fig/soi_cntr_m.png")
+ggsave(filename = "./fig/soi_cntr_m.png", width = 8, height = 6)
 
 # We can distinguish groups of countries. Five countries have at most one issue on half the area analysed (\@ref(fig:soicntrmplot) median, red dot): Finland (FI), Sweden (SE), Latvia (LV), Estonia (EE) and Croatia (HR). The bar charts of Finland and Sweden are similar (Fig. \@ref(fig:soicntrplot)). Their distribution's peak (mode, x in Fig.\@ref(fig:soicntrmplot)) is at one single issue. At the other extreme, six countries have more half of their mapped area subject to five or more coinciding issues: CZ, LU, DE, BE, DK, NL. 
 # Half of the continental EU27 (without maritime territories) analysed here has at least threeß coinciding issues. 25% of the area has at least two issues (lower end of vertical line), while another 25% of the area has at least four coinciding issues (upper end of vertical line). The most frequent number of coinciding issues is 3 (mode, x). On average, there are 3.5 issues (mean, black dot).
@@ -425,6 +446,7 @@ soi_nuts_m <- soi_nuts_pc %>%
             median = soi[cumarea == min(cumarea[cumarea>=50])][1],
             q3 = soi[cumarea == min(cumarea[cumarea>=75])][1]) %>%
   ungroup()
+save(soi_nuts_m, file = "./temp/soi_nuts_m.rdata")
 # join with vect
 soi_nuts_vect <- terra::merge(zones_eu27, soi_nuts_m) 
 soi_nuts_sf <- sf::st_as_sf(soi_nuts_vect) # does not work with sf version 0.9-6
@@ -433,10 +455,9 @@ soi_nuts_sf <- sf::st_as_sf(soi_nuts_vect) # does not work with sf version 0.9-6
 
 ggplot(soi_nuts_sf) +
     geom_sf(aes(fill = median), colour = NA) +
-    scale_fill_viridis_b(name = "", breaks = 0:max(soi_nuts_m$median)) +
-    labs(title = "Median number of coinciding issues") 
+    scale_fill_viridis_b(name = "", breaks = 0:max(soi_nuts_m$median)) 
 
-ggsave(filename = "./fig/soi_nuts.png")
+ggsave(filename = "./fig/soi_nuts.png", width = 6, height = 6)
 
 
 #In the next section, we look at which are the most frequent issues.
@@ -491,8 +512,13 @@ ggplot(issues_cntr_pc,
   geom_col() +
   facet_wrap(~CNTR_CODE, ncol = 7) +
   scale_x_discrete(limits = pull(issues_eu,issue), labels = band_order ) +
+  xlab("") + ylab ("Percentage of country area" ) +
   coord_flip()
-ggsave(filename = "./fig/issues_cntr.png")
+ggsave(filename = "./fig/issues_cntr.png", height = 9, width = 8)
+
+# EU27
+issues_eu %>% filter(issue == "eutrofication_issue_R")
+issues_cntr_pc %>% filter(CNTR_CODE == "EU27" & issue == "eutrofication_issue_R") %>% dplyr::select(area) 
 
 # We map the percentage of each NUTS3 in which each issue occurs.
 
@@ -583,7 +609,7 @@ knitr::kable(soi_lc %>% dplyr::select(-LC),
 
 # fig.cap = "Frequency of number of coinciding issues in the EU27 by land cover class (excluding oversea territories)."}
 soi_lc_pc <- soi_lc %>%
-  mutate(across(`0`:`12`, ~round(.x/total*100))) %>%
+  mutate(across(!!as.character(min_soi) : !!as.character(max_soi), ~round(.x/total*100))) %>%
   ungroup() %>%
   dplyr::select(-total, -LC) %>%
   # to long table
@@ -593,8 +619,8 @@ ggplot(soi_lc_pc %>% dplyr::filter(! LC_name %in% c("Other", "EU27")),
   geom_col() +
   facet_wrap(~LC_name, ncol = 3) +
   xlab("# coinciding issues") +
-  ylab("Area in LC class [%]")
-ggsave(filename = "./fig/soi_lc.png")
+  ylab("Percentage area within LC class")
+ggsave(filename = "./fig/soi_lc.png", width = 8, height = 6)
 
 # plot soi mean, median, mode by LC class
 soi_lc_m <- soi_lc_pc %>%
@@ -622,7 +648,7 @@ soilcmplot <- ggplot(soi_lc_m %>% mutate(LC_name = factor(as.character(LC_name),
   xlab("Land cover") 
 
 soilcmplot
-ggsave(filename = "./fig/soi_lc_m.png")
+ggsave(filename = "./fig/soi_lc_m.png", width = 8, height = 6)
 
 # On average, Wetlands, Bare and Other areas present less coinciding land change issues then other land covers. Cropland and Urban areas present the most numerous coinciding pressures.
 
@@ -640,7 +666,7 @@ knitr::kable(issues_lc,
              col.names = c("Land Cover class", band_order)
 )
 
-# fig.cap="Percentage of area in EU27 subject to land change issues by land cover class.
+# fig.cap="Percentage of area in EU27 subject to land change issues by land cover class."
 issues_lc_pc <- issues_lc %>%
   left_join(soi_lc %>% dplyr::select(LC_name, total)) %>%
   rowwise() %>%
@@ -652,16 +678,42 @@ issues_lc_pc <- issues_lc %>%
   # set issue as factor, with levels sorted by increasing area affected at EU scale
   mutate(issue = factor(issue, levels = pull(issues_eu,issue))) %>%
   # add info on stratification
-  mutate(is_strat = if_else(issue %in% c("population_issue_R", "rusle_issue_R", "wind_issue_R", "eutrofication_issue_R", "nitrogen_R", "acidification_issue_R", "soilmicro_R"), true = "Stratified", false = "Not stratified"))
+  mutate(is_strat = if_else(issue %in% c("population_issue_R", 
+                                         "rusle_issue_R", 
+                                         "wind_issue_R", 
+                                         "eutrofication_issue_R", 
+                                         "nitrogen_R", 
+                                         "acidification_issue_R", 
+                                         "soilmicro_R",
+                                         "popchange_R"), 
+                            true = "Stratified", false = "Not stratified"))
   
 ggplot(issues_lc_pc,
        aes(x = issue, y = area, fill = is_strat)) +
   geom_col() +
-  facet_wrap(~LC_name, ncol = 3) +
+  facet_wrap(~LC_name, ncol = 4) +
   scale_x_discrete(limits = pull(issues_eu,issue), labels = band_order ) +
-  scale_fill_brewer(palette = "Set2") +
-  coord_flip()
-ggsave(filename = "./fig/issues_lc.png")
+  scale_fill_brewer(palette = "Set2",
+                    name = "") +
+  xlab("") + ylab("Percentage of area") +
+  coord_flip() +
+  theme(legend.position=c(0.9, 0.3))
+ggsave(filename = "./fig/issues_lc.png", width = 8, height = 6)
+
+# table
+issues_lc_tbl <- issues_lc_pc %>%
+  dplyr::select(-is_strat) %>%
+  pivot_wider(names_from = issue, values_from = area) %>%
+  bind_rows(issues_lc) %>%
+  arrange(LC_name)
+
+knitr::kable(issues_lc_tbl, 
+             caption = "Areas under specific land cover affected by a given issue. First line in sq.km; Second line in percentage of total area within land cover class",
+             col.names = c("Land Cover class", band_order)
+)
+# export to csv
+readr::write_csv(issues_lc_tbl, "./temp/issues_lc_tbl.csv")
+             
 
 # Depending on how the threshold is defined, analysing the issue distribution per land cover class makes more or less sense.
 # For all stratified variables, the criteria is that all values greater than the median within each land cover class are to be considered an issue (value_issue = 1). Therefore, the area affected by a specific stratified issue can't exceed 50~%. If the criteria would have included the median, this wouldn't be the case.
@@ -717,8 +769,8 @@ ggplot(soi_lpd_pc %>% dplyr::filter(! LPD_name %in% c("Other", "EU27")),
   geom_col() +
   facet_wrap(~LPD_name, ncol = 3) +
   xlab("# coinciding issues") +
-  ylab("Area [%]")
-ggsave(filename = "./fig/soi_lpd.png")
+  ylab("Percentage area within LPD class")
+ggsave(filename = "./fig/soi_lpd.png", width = 8, height = 3.5)
 
 # soi mean, median, mode by lpd class
 soi_lpd_m <- soi_lpd_pc %>%
@@ -743,10 +795,10 @@ soilpdmplot <- ggplot(soi_lpd_m %>% mutate(LC_name = factor(as.character(LPD_nam
   geom_point(mapping = aes(y = mean),show.legend = TRUE) +
   geom_point(mapping = aes(y = mode), shape = "x", size = 4, show.legend = TRUE) +
   ylab("# coinciding issues") + 
-  xlab("Land cover") 
+  xlab("Land productivity dynamics change") 
 
 soilpdmplot
-ggsave(filename = "./fig/soi_lpd_m.png")
+ggsave(filename = "./fig/soi_lpd_m.png", width = 8, height = 6)
 
 # Areas with both decreasing LPD are mostly (media, red dot) associated with four other land change issues (need to subtract 1 from decreasing). Areas with stable and increasing LPD tend to have one issue less.
 
@@ -781,22 +833,18 @@ ggplot(issues_lpd_pc %>% filter(issue != "lpd_issue"),
        aes(x = issue, y = area, fill = LPD_name)) +
   geom_col(position = "dodge") +
   # facet_wrap(~LPD_name, ncol = 3) +
-  scale_x_discrete(limits = pull(issues_eu %>% filter(issue != "lpd_issue"),issue), labels = band_order ) +
+  scale_x_discrete(
+    limits = pull(issues_eu %>% filter(issue != "lpd_issue"),issue),
+    labels = band_order 
+    ) +
+  scale_fill_brewer(palette = "RdYlBu", name = "LPD change") +
+  xlab("") + ylab("Percentage of area within LPD change class") +
+  theme_dark() +
   coord_flip()
-ggsave(filename = "./fig/issues_lpd.png")
+ggsave(filename = "./fig/issues_lpd.png", width = 8, height = 6)
 
 ### Conventional ag
 ### Organic ag 
 ### Regenerative ag
 # couldn't find data for these ....
-
-## Comparison with trends.earth outputs
-
-# compare our results with trends.earth:
-# TO DO 
-# - reproject sdg15.3 to 3035 by nearest neighbour
-# - zonal stat at NUTS3 level (area degrading, stable and improving)
-# load data
-sdg15 <- sds("../TrendsEarthEurope/")
-
 
