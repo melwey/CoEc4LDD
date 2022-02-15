@@ -276,6 +276,20 @@ if (restart){
   # 99.005  11.661 115.369 
   tmp <- stat_issues_data %>% summarise(across(where(is.integer), sum))
   # number of cells with data values depends on issue. Max is 4102215 for those defined everywhere, then 4094610 for lpd, then 4092673, for 5 issues. Min is treeloss because only on forest cells? This reflects on coe sum of issues: 0 are true 0 or no data
+  # fires1 4102215. Defined everywhere
+  # treeloss_issue 3824392. Defined only where there are trees.
+  # nitrogen_R 3070983. Only in agric.
+  # eutrofication_issue_R 3862217. almost everywhere. some no data coming from resampling?
+  # acidification_issue_R 3750614.some huge holes in france, finland, cyprus and a bit in spain. plus all coast lines
+  # water_stress_issue 4102215. defined everywhere
+  # groundwater_decline 4102215. defined everywhere
+  # rusle_issue_R 3716056. defined only in agric?
+  # wind_issue_R 939524. Defined in very few areas. Check original data decription.
+  # lpd_issue 4094610.
+  # population_issue_R 4092424. defined everywhere (except sometimes on coastline)
+  # popchange_R 4085514. same.
+  # builtup_issue 4092673. same
+  # soilmicro_R 3122597. not defined in urban/peri-urban. Not in mountains.
   
   # Sum of issues
   system.time(
@@ -489,7 +503,7 @@ issues_cntr <- issues_areas %>%
   dplyr::select(c("CNTR_CODE", pull(issues_eu,issue)))
 knitr::kable(issues_cntr, 
              caption = "Areas [sq.km] of each EU country affected by a given issue.",
-             col.names = c("Country code", band_order)
+             col.names = c("Country code", band_order[pull(issues_eu,issue)])
 )
 
 #fig.cap="Percentage of area in EU27 countries subject to land change issues.
@@ -508,13 +522,27 @@ issues_cntr_pc <- issues_cntr %>%
   
 
 ggplot(issues_cntr_pc,
-       aes(x = issue, y = area)) +
+       aes(x = issue, y = area)) + # for geom_text # , label = area
   geom_col() +
+  #geom_text() +
   facet_wrap(~CNTR_CODE, ncol = 7) +
   scale_x_discrete(limits = pull(issues_eu,issue), labels = band_order ) +
   xlab("") + ylab ("Percentage of country area" ) +
   coord_flip()
 ggsave(filename = "./fig/issues_cntr.png", height = 9, width = 8)
+
+# table cntr
+issues_cntr_tbl <- issues_cntr_pc %>%
+  pivot_wider(names_from = issue, values_from = area) %>%
+  bind_rows(issues_cntr) %>%
+  arrange(CNTR_CODE)
+readr::write_csv(issues_cntr_tbl, "./temp/issues_cntr_tbl.csv")
+# export to csv and format in excel
+tmp <- issues_cntr_pc %>%
+  pivot_wider(names_from = issue, values_from = area)
+names(tmp) <- c("Country", band_order[pull(issues_eu,issue)])
+readr::write_csv(tmp, "./temp/issues_cntr_pc_tbl.csv")
+readr::write_csv(issues_cntr, "./temp/issues_cntr.csv")
 
 # EU27
 issues_eu %>% filter(issue == "eutrofication_issue_R")
@@ -703,9 +731,12 @@ ggsave(filename = "./fig/issues_lc.png", width = 8, height = 6)
 # table
 issues_lc_tbl <- issues_lc_pc %>%
   dplyr::select(-is_strat) %>%
-  pivot_wider(names_from = issue, values_from = area) %>%
-  bind_rows(issues_lc) %>%
-  arrange(LC_name)
+  pivot_wider(names_from = LC_name, values_from = area) %>%
+  bind_rows(issues_lc %>% 
+              pivot_longer (where(is.numeric), names_to = "issue", values_to = "area") %>%
+              pivot_wider(names_from = LC_name, values_from = area)) %>%
+  mutate(issue = factor(issue, levels = pull(issues_eu,issue))) %>%
+  arrange(desc(issue))
 
 knitr::kable(issues_lc_tbl, 
              caption = "Areas under specific land cover affected by a given issue. First line in sq.km; Second line in percentage of total area within land cover class",
@@ -800,6 +831,9 @@ soilpdmplot <- ggplot(soi_lpd_m %>% mutate(LC_name = factor(as.character(LPD_nam
 soilpdmplot
 ggsave(filename = "./fig/soi_lpd_m.png", width = 8, height = 6)
 
+# are fires in wetland due to groundwater decline?
+# add the 2 layers
+
 # Areas with both decreasing LPD are mostly (media, red dot) associated with four other land change issues (need to subtract 1 from decreasing). Areas with stable and increasing LPD tend to have one issue less.
 
 # issues by LPD
@@ -814,7 +848,8 @@ issues_lpd <- issues_areas %>%
   dplyr::select(c("LPD_name", pull(issues_eu,issue)))
 knitr::kable(issues_lpd, 
              caption = "Areas [sq.km] with specific LPD affected by a given issue.",
-             col.names = c("Land Productivity Dynamics", band_order)
+             col.names = c("Land Productivity Dynamics", band_order),
+             format = "html"
 )
 
 # fig.cap="Percentage of area in EU27 subject to land change issues by LPD class.
