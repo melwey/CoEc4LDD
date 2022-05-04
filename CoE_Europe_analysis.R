@@ -257,7 +257,7 @@ if (restart){
                                 filename = "./temp/combined_zones.tif",
                                 overwrite=TRUE)
   soi_zones <- terra::lapp(sds(combined_zones, coe_soi),
-                           fun = function(x,y) {x + floor(y) *1e6},
+                           fun = function(x,y) {return(x + floor(y) *1e6)},
                            filename = "./temp/soi_zones.tif",
                            overwrite=TRUE)
   
