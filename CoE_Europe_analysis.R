@@ -251,7 +251,7 @@ if (restart){
   # so i drop it from the analysis
   
   # sum raster
-  comb <- function(x, y, z){x + y * 1e4 + z * 1e5}
+  comb <- function(x, y, z){return(x + y * 1e4 + z * 1e5)}
   combined_zones <- terra::lapp(sds(rzones_eu27, LC, LPD), 
                                 fun = comb,
                                 filename = "./temp/combined_zones.tif",
